@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GAN Pixel Lab — MNIST generator study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one fixed, flat 28x28 black-and-white pixel grid centered in a frame, with a slim readout/control column beside it; stacks on phones.
+   Palette: ink-blue ground with a single cyan accent for chrome; the grid itself is strictly grayscale. */
+:root {
+  --bg: #050814;
+  --panel: #0a1022;
+  --line: #1a2748;
+  --fg: #dbe7ff;
+  --muted: #7d8db3;
+  --cyan: #4fe3ff;
+  --ink-on-cyan: #02121a;
+  --font-display: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 var(--font-body);
+}
+* { box-sizing: border-box; }
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  min-height: 100%;
+  padding-block: 20px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header { display: flex; flex-direction: column; gap: 2px; }
+.eyebrow {
+  font: 500 11px/1.4 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  margin: 0;
+  font: 600 30px/1.1 var(--font-display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  min-height: 0;
+}
+.stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 480px;
+  padding: 36px 24px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: radial-gradient(90% 80% at 50% 50%, #0b1634 0%, var(--bg) 70%);
+}
+.frame {
+  position: relative;
+  width: min(100%, 600px);
+  aspect-ratio: 1;
+  max-width: 100%;
+  box-shadow: 0 0 0 1px rgba(79, 227, 255, 0.35), 0 0 48px rgba(79, 227, 255, 0.14);
+}
+#grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #000;
+}
+.frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0.035) 1px, transparent 1px, transparent 4px);
+}
+.br { position: absolute; width: 18px; height: 18px; border: 2px solid var(--cyan); pointer-events: none; z-index: 2; }
+.br.tl { top: -9px; left: -9px; border-right: 0; border-bottom: 0; }
+.br.tr { top: -9px; right: -9px; border-left: 0; border-bottom: 0; }
+.br.bl { bottom: -9px; left: -9px; border-right: 0; border-top: 0; }
+.br.brr { bottom: -9px; right: -9px; border-left: 0; border-top: 0; }
+.coord {
+  position: absolute;
+  font: 400 11px/1.4 var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.coord.a { top: -26px; left: 0; }
+.coord.b { bottom: -26px; right: 0; }
+.stage-status {
+  position: absolute;
+  left: 14px;
+  bottom: 10px;
+  font: 400 11px/1.4 var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+}
+aside { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.block { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.block:first-child { padding-top: 0; border-top: 0; }
+h2 {
+  margin: 0;
+  font: 500 11px/1.4 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font: 400 12px/1.5 var(--font-mono); }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+button {
+  font: 500 13px/1 var(--font-body);
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+button.primary {
+  flex: 1 1 100%;
+  min-height: 48px;
+  font: 600 15px/1 var(--font-display);
+  letter-spacing: 0.02em;
+  background: var(--cyan);
+  border-color: var(--cyan);
+  color: var(--ink-on-cyan);
+  box-shadow: 0 0 26px rgba(79, 227, 255, 0.32);
+}
+button.primary:hover { filter: brightness(1.08); box-shadow: 0 0 34px rgba(79, 227, 255, 0.5); }
+button.primary:active { transform: translateY(1px); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; min-height: 36px; color: var(--muted); font: 500 12px/1 var(--font-mono); letter-spacing: 0.06em; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: rgba(79, 227, 255, 0.12); color: var(--cyan); }
+.seg-label { font: 400 12px/1.4 var(--font-mono); color: var(--muted); }
+.msg { min-height: 20px; margin: 0; font: 400 12px/1.5 var(--font-mono); color: var(--cyan); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.field-label { font: 500 12px/1.3 var(--font-body); color: var(--fg); }
+.field-val { font: 400 11px/1.3 var(--font-mono); color: var(--cyan); }
+select.sel {
+  width: 100%; min-height: 36px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  font: 500 13px/1 var(--font-body);
+}
+input[type="range"] { -webkit-appearance: none; width: 100%; height: 4px; background: var(--line); border-radius: 2px; outline: none; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--cyan); cursor: pointer; }
+input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--cyan); border: 0; cursor: pointer; }
+input[type="text"].seedbox {
+  width: 100%; min-height: 36px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  font: 400 12px/1 var(--font-mono);
+}
+input[type="text"].seedbox::placeholder { color: var(--muted); }
+.note.small { font-size: 12px; margin-top: 2px; }
+@media (max-width: 860px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .stage { min-height: 0; padding: 40px 28px; }
+  h1 { font-size: 26px; }
+}
+.app {
+  display: block;
+  width: min(100%, 1380px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 30px clamp(18px, 4vw, 56px) 56px;
+}
+body {
+  min-height: 100%;
+  background: #f3f1e9;
+  color: #242a24;
+  font: 14px/1.55 Inter, system-ui, sans-serif;
+}
+header {
+  display: block;
+  padding: 0 0 28px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid #d5d2c8;
+}
+.brandline, .heading-row, .stage-head, .research-head, .research-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.brandline { margin-bottom: 26px; }
+.report-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid rgba(99, 127, 137, .28);
+  border-radius: 999px;
+  background: rgba(250, 253, 252, .66);
+  color: #527d72;
+  font-size: 11px;
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.report-link:hover { border-color: #648e98; background: rgba(250, 253, 252, .92); color: #365e55; transform: translateY(-1px); }
+.report-link:focus-visible { outline: 2px solid #83a795; outline-offset: 3px; }
+.eyebrow, h2, .stage-kicker, .paper-tag, .research-kicker, .card-kicker, .header-index {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+.eyebrow { color: #60695e; }
+.brand-mark {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  margin-right: 10px;
+  place-items: center;
+  border: 1px solid #b34f31;
+  color: #b34f31;
+  font: 600 12px/1 var(--font-mono);
+}
+.brandline .eyebrow { display: flex; align-items: center; }
+.header-index, .paper-tag, .stage-kicker, .research-kicker, .card-kicker {
+  color: #788075;
+  font-size: 10px;
+}
+.heading-row { align-items: end; }
+h1 {
+  color: #202820;
+  font: 500 clamp(42px, 6vw, 76px)/.98 Georgia, 'Times New Roman', serif;
+  letter-spacing: -.055em;
+}
+h1 em { color: #b34f31; font-weight: 400; }
+.intro {
+  max-width: 510px;
+  margin: 13px 0 0;
+  color: #626a60;
+  font-size: 15px;
+}
+.paper-tag {
+  max-width: 230px;
+  padding-left: 15px;
+  border-left: 2px solid #b34f31;
+  line-height: 1.6;
+}
+.paper-tag strong {
+  display: block;
+  margin-top: 5px;
+  color: #30382f;
+  font: 500 13px/1.4 Inter, system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.main {
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr);
+  align-items: start;
+  gap: 18px;
+}
+.stage {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: clamp(24px, 4vw, 50px);
+  overflow: visible;
+  border: 1px solid #d8d5ca;
+  border-radius: 3px;
+  background-color: #faf9f5;
+  background-image: linear-gradient(#e9e7df 1px, transparent 1px), linear-gradient(90deg, #e9e7df 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.stage-head, .stage-status { width: min(100%, 500px); }
+.stage-head { align-items: baseline; }
+.stage-head strong {
+  color: #30382f;
+  font: 500 13px/1.4 var(--font-mono);
+}
+.frame {
+  width: min(100%, 500px);
+  box-shadow: 0 0 0 8px #faf9f5, 0 0 0 9px #cbc8bd;
+}
+.frame::after { opacity: .18; }
+.br { width: 12px; height: 12px; border-width: 1px; border-color: #b34f31; }
+.br.tl { top: -5px; left: -5px; }
+.br.tr { top: -5px; right: -5px; }
+.br.bl { bottom: -5px; left: -5px; }
+.br.brr { bottom: -5px; right: -5px; }
+.coord { color: #687064; font-size: 10px; }
+.stage-status {
+  position: static;
+  min-height: 18px;
+  color: #687064;
+  font-size: 10px;
+}
+aside {
+  gap: 0;
+  padding: 22px;
+  border: 1px solid #d8d5ca;
+  background: #faf9f5;
+}
+.block {
+  gap: 13px;
+  padding: 18px 0;
+  border-top: 1px solid #e1ded5;
+}
+.block:first-child { padding-top: 0; border-top: 0; }
+h2 { color: #788075; font-size: 10px; }
+.note { color: #677064; }
+.note.small { margin-top: 0; color: #737a70; font-size: 11px; }
+.note kbd {
+  padding: 2px 5px;
+  border: 1px solid #d8d5ca;
+  background: #fffefa;
+  color: #41483e;
+  font: 10px/1.2 var(--font-mono);
+}
+dl { gap: 7px 12px; font-size: 11px; }
+dt { color: #788075; }
+dd { color: #30382f; }
+.btns { margin-top: 1px; }
+button {
+  min-height: 42px;
+  border-radius: 2px;
+  border-color: #d2cfc5;
+  color: #30382f;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
+}
+button:hover { border-color: #b34f31; color: #8e3d25; }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #b34f31;
+  outline-offset: 3px;
+}
+button.primary {
+  min-height: 50px;
+  border-color: #b34f31;
+  background: #b34f31;
+  color: #fffaf3;
+  box-shadow: none;
+}
+button.primary:hover { border-color: #913d27; background: #913d27; filter: none; box-shadow: none; }
+button.primary:active { transform: translateY(1px); }
+.field { gap: 8px; padding-top: 12px; border-top: 1px solid #eeece5; }
+.field-label { color: #30382f; font-size: 12px; }
+.field-val { color: #a4472e; }
+select.sel, input[type="text"].seedbox {
+  min-height: 40px;
+  border-radius: 2px;
+  border-color: #d8d5ca;
+  background: #fffefa;
+  color: #30382f;
+}
+input[type="range"] { background: #dedbd1; }
+input[type="range"]::-webkit-slider-thumb { background: #b34f31; }
+input[type="range"]::-moz-range-thumb { background: #b34f31; }
+.field-row button { min-width: 66px; }
+.field-note { color: #687064; font-size: 11px; }
+.field-note summary { width: fit-content; color: #8f4934; cursor: pointer; }
+.field-note p { margin: 7px 0 0; }
+.msg { color: #a4472e; }
+.research {
+  margin-top: 58px;
+  padding-top: 28px;
+  border-top: 1px solid #c9c6bb;
+}
+.research-head { align-items: end; margin-bottom: 22px; }
+.research-title {
+  margin: 8px 0 0;
+  color: #202820;
+  font: 500 clamp(30px, 4vw, 48px)/1.04 Georgia, 'Times New Roman', serif;
+  letter-spacing: -.04em;
+}
+.research-lede { max-width: 420px; margin: 0; color: #626a60; font-size: 13px; }
+.research-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  border: 1px solid #d8d5ca;
+  background: #faf9f5;
+}
+.research-card { min-width: 0; padding: 22px; }
+.research-card + .research-card { border-left: 1px solid #d8d5ca; }
+.card-kicker { display: block; margin-bottom: 15px; color: #a4472e; }
+.research-card h3 {
+  margin: 0 0 9px;
+  color: #30382f;
+  font: 500 19px/1.2 Georgia, 'Times New Roman', serif;
+}
+.research-card p { margin: 0; color: #626a60; font-size: 12px; line-height: 1.7; }
+.equation {
+  margin: 17px 0 12px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border-left: 2px solid #b34f31;
+  background: #f1efe8;
+  color: #30382f;
+  font: 12px/1.7 var(--font-mono);
+}
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 14px 0;
+}
+.pipeline span {
+  padding: 4px 7px;
+  border: 1px solid #dedbd1;
+  color: #394137;
+  font: 10px/1.3 var(--font-mono);
+}
+.research-foot {
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: 8px 18px;
+  flex-wrap: wrap;
+  margin-top: 15px;
+  color: #72796f;
+  font-size: 11px;
+}
+.research-foot a { color: #99442e; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.research-foot a:hover { color: #6f2e1d; }
+@media (max-width: 860px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .stage { min-height: 0; padding: clamp(22px, 6vw, 40px); }
+  h1 { font-size: clamp(42px, 10vw, 64px); }
+  .research-grid { grid-template-columns: 1fr; }
+  .research-card + .research-card { border-top: 1px solid #d8d5ca; border-left: 0; }
+}
+@media (max-width: 560px) {
+  .app { padding: 20px 16px 38px; }
+  .brandline { margin-bottom: 22px; }
+  .heading-row, .research-head { align-items: flex-start; flex-direction: column; }
+  .paper-tag { max-width: none; }
+  .stage { background-size: 20px 20px; }
+  aside { padding: 18px; }
+  .research { margin-top: 40px; }
+  .research-card { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+.app {
+  --ink: #30382f;
+  --muted-ink: #687064;
+  --line-ink: rgba(112, 99, 79, .2);
+  --panel-ink: rgba(255, 254, 250, .72);
+  --panel-soft: rgba(245, 242, 233, .76);
+  --violet: #a4472e;
+  --lime: #b34f31;
+}
+body {
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(233, 207, 182, .42), transparent 34%),
+    radial-gradient(ellipse at 88% 30%, rgba(208, 216, 199, .44), transparent 36%),
+    #f3f1e9;
+  color: var(--ink);
+}
+header { border-color: var(--line-ink); }
+.eyebrow, .header-index, .paper-tag, .stage-kicker, .research-kicker, .card-kicker { color: var(--muted-ink); }
+.brand-mark { border-color: var(--violet); color: var(--violet); }
+h1, .paper-tag strong, .stage-head strong, h2, .field-label, dd, .research-title, .research-card h3 { color: var(--ink); }
+h1 em { color: var(--violet); }
+.intro, .note, .research-lede, .research-card p, .research-foot, dt, .stage-status { color: var(--muted-ink); }
+.paper-tag { border-color: var(--violet); }
+.stage {
+  border-color: var(--line-ink);
+  background-color: rgba(255, 254, 250, .48);
+  background-image: linear-gradient(rgba(133, 119, 96, .12) 1px, transparent 1px), linear-gradient(90deg, rgba(133, 119, 96, .12) 1px, transparent 1px);
+  border-radius: 22px;
+  backdrop-filter: blur(12px) saturate(125%);
+  -webkit-backdrop-filter: blur(12px) saturate(125%);
+}
+.frame { box-shadow: 0 0 0 8px rgba(255, 254, 250, .7), 0 0 0 9px rgba(112, 99, 79, .22); }
+#grid { border-radius: 10px; }
+.br { border-color: var(--lime); }
+.coord { color: var(--muted-ink); }
+aside, .research-grid { border-color: var(--line-ink); background: var(--panel-ink); }
+.block, .field, .research-card + .research-card { border-color: var(--line-ink); }
+.research { border-color: var(--line-ink); }
+aside, .research-grid, .training-step, select.sel, input[type="text"].seedbox, button {
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+}
+aside, .research-grid {
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 16px 42px rgba(62, 46, 34, .08);
+}
+.research-grid { overflow: hidden; }
+button { border-radius: 999px; }
+.field-row button { border-radius: 12px; }
+select.sel, input[type="text"].seedbox { border-radius: 12px; }
+button { border-color: rgba(112, 99, 79, .28); color: var(--ink); }
+button:hover { border-color: var(--violet); color: var(--violet); }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline-color: var(--lime); }
+button.primary { border-color: var(--lime); background: var(--lime); color: #fffaf3; }
+button.primary:hover { border-color: #913d27; background: #913d27; color: #fffaf3; }
+.field-val, .field-note summary { color: var(--violet); }
+.note kbd, select.sel, input[type="text"].seedbox { border-color: rgba(112, 99, 79, .24); background: rgba(255, 254, 250, .75); color: var(--ink); }
+.note kbd { border-color: rgba(112, 99, 79, .24); }
+input[type="range"] { background: rgba(112, 99, 79, .24); }
+input[type="range"]::-webkit-slider-thumb, input[type="range"]::-moz-range-thumb { background: var(--violet); }
+.msg, .research-foot a { color: var(--violet); }
+.research-foot a:hover { color: #6f2e1d; }
+.card-kicker { color: var(--violet); }
+.equation { border-color: var(--violet); background: rgba(241, 239, 232, .8); color: var(--ink); }
+.pipeline span { border-color: rgba(112, 99, 79, .24); color: #394137; }
+.architecture {
+  margin-bottom: 20px;
+  overflow: hidden;
+  border: 1px solid var(--line-ink);
+  background: var(--panel-ink);
+  border-radius: 22px;
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 16px 42px rgba(62, 46, 34, .08);
+}
+.architecture-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--line-ink);
+}
+.architecture-head { border-color: var(--line-ink); }
+.architecture-head h3, .training-summary h3 {
+  margin: 7px 0 0;
+  color: var(--ink);
+  font: 500 24px/1.15 Georgia, 'Times New Roman', serif;
+}
+.architecture-head p { max-width: 430px; margin: 0; color: var(--muted-ink); font-size: 12px; }
+.arch-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px 0; color: var(--muted-ink); font-size: 11px; }
+.arch-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet); }
+.legend-dot.data { background: #7799b7; }
+.legend-dot.feedback { background: var(--lime); }
+.diagram-scroll { overflow-x: auto; overscroll-behavior-inline: contain; padding: 8px 20px 0; }
+.arch-diagram { display: block; width: 100%; min-width: 720px; height: auto; }
+.arch-diagram text { font-family: Inter, system-ui, sans-serif; fill: #30382f; }
+.arch-diagram .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.arch-diagram .small { fill: #687064; font-size: 12px; }
+.arch-diagram .label { font-size: 14px; font-weight: 500; }
+.arch-diagram .sub { fill: #687064; font-size: 10px; }
+.arch-diagram .sub.mono { font-size: 10px; }
+.arch-diagram .flow { fill: none; stroke: #8b8b80; stroke-width: 2; }
+.arch-diagram .data-flow { fill: none; stroke: #7799b7; stroke-width: 2; }
+.arch-diagram .feedback { fill: none; stroke: #b34f31; stroke-width: 2; stroke-dasharray: 7 6; }
+.arch-diagram .noise-node, .arch-diagram .sample-node, .arch-diagram .net-node, .arch-diagram .output-node, .arch-diagram .loss-node { stroke-width: 1.5; }
+.arch-diagram .noise-node { fill: #f5efff; stroke: #a878bd; }
+.arch-diagram .sample-node { fill: #edf3f7; stroke: #7799b7; }
+.arch-diagram .net-node { fill: #fff2eb; stroke: #b34f31; }
+.arch-diagram .output-node { fill: #f0f3e9; stroke: #83966a; }
+.arch-diagram .loss-node { fill: #faf8f1; stroke: #a9a596; }
+.diagram-caption { margin: 0; padding: 0 24px 18px; color: var(--muted-ink); font-size: 11px; }
+.training-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, .75fr) 2fr;
+  gap: 26px;
+  align-items: start;
+  margin-top: 20px;
+  padding: 22px 24px;
+  border: 1px solid var(--line-ink);
+  background: var(--panel-ink);
+  border-radius: 20px;
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 14px 36px rgba(62, 46, 34, .07);
+}
+.training-summary h3 { margin-bottom: 8px; }
+.training-summary > div > p { margin: 0; color: var(--muted-ink); font-size: 12px; }
+.training-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.training-step { min-width: 0; padding: 13px; border: 1px solid var(--line-ink); border-radius: 14px; background: var(--panel-soft); }
+.training-step b { display: block; margin-bottom: 6px; color: var(--violet); font: 11px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
+.training-step p { margin: 0; color: #626a60; font-size: 11px; line-height: 1.6; }
+@media (max-width: 860px) {
+  .training-summary { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .architecture-head { align-items: flex-start; flex-direction: column; padding: 18px; }
+  .arch-legend { padding-inline: 18px; }
+  .diagram-scroll { padding-inline: 8px; }
+  .diagram-caption { padding-inline: 18px; }
+  .training-summary { padding: 18px; }
+  .training-steps { grid-template-columns: 1fr; }
+}
+.app {
+  --ink: #30434a;
+  --muted-ink: #71838a;
+  --line-ink: rgba(99, 127, 137, .2);
+  --panel-ink: rgba(250, 253, 252, .72);
+  --panel-soft: rgba(239, 246, 245, .78);
+  --violet: #648e98;
+  --lime: #83a795;
+}
+body {
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(201, 222, 223, .52), transparent 36%),
+    radial-gradient(ellipse at 90% 28%, rgba(216, 226, 211, .5), transparent 38%),
+    #edf3f2;
+  color: var(--ink);
+}
+.brand-mark { border-color: var(--violet); color: var(--violet); }
+h1 em { color: #648e98; }
+.paper-tag { border-color: #83a795; }
+.stage {
+  background-color: rgba(250, 253, 252, .52);
+  background-image: linear-gradient(rgba(107, 138, 146, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(107, 138, 146, .1) 1px, transparent 1px);
+}
+.frame { box-shadow: 0 0 0 8px rgba(250, 253, 252, .74), 0 0 0 9px rgba(99, 127, 137, .2); }
+.br { border-color: #83a795; }
+button.primary { border-color: #648e98; background: #648e98; color: #f9fcfb; }
+button.primary:hover { border-color: #507a84; background: #507a84; color: #fff; }
+.field-val, .field-note summary { color: #648e98; }
+button:hover { border-color: #648e98; color: #507a84; }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline-color: #83a795; }
+.msg, .research-foot a { color: #527d72; }
+.research-foot a:hover { color: #365e55; }
+.card-kicker { color: #527d72; }
+.equation { border-color: #648e98; background: rgba(235, 243, 242, .82); }
+.pipeline span { border-color: rgba(99, 127, 137, .22); color: #405961; }
+.training-step b { color: #527d72; }
+.training-step p { color: #60777e; }
+.arch-diagram .flow { stroke: #84979a; }
+.arch-diagram .data-flow { stroke: #648e98; }
+.arch-diagram .feedback { stroke: #83a795; }
+.arch-diagram .noise-node { fill: #f3eff8; stroke: #9584aa; }
+.arch-diagram .sample-node { fill: #edf5f7; stroke: #648e98; }
+.arch-diagram .net-node { fill: #e8f2f1; stroke: #648e98; }
+.arch-diagram .output-node { fill: #edf3eb; stroke: #83a795; }
+.arch-diagram .loss-node { fill: #f2f6f1; stroke: #94a49a; }
+.dataset-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .95fr);
+  gap: clamp(22px, 4vw, 48px);
+  align-items: center;
+  margin-bottom: 20px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--line-ink);
+  border-radius: 22px;
+  background: var(--panel-ink);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 16px 42px rgba(62, 46, 34, .08);
+}
+.dataset-copy h3 {
+  margin: 8px 0 12px;
+  color: var(--ink);
+  font: 500 clamp(26px, 3vw, 36px)/1.08 Georgia, 'Times New Roman', serif;
+  letter-spacing: -.025em;
+}
+.dataset-copy > p { margin: 0; color: var(--muted-ink); font-size: 13px; line-height: 1.75; }
+.dataset-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0 16px;
+}
+.dataset-fact { padding: 12px; border: 1px solid var(--line-ink); border-radius: 14px; background: var(--panel-soft); }
+.dataset-fact strong { display: block; color: #527d72; font: 500 19px/1.2 var(--font-mono); }
+.dataset-fact span { display: block; margin-top: 5px; color: var(--muted-ink); font-size: 10px; }
+.dataset-source { color: #527d72; font-size: 11px; text-underline-offset: 3px; }
+.dataset-figure {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line-ink);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), 0 12px 30px rgba(62, 46, 34, .07);
+}
+.dataset-figure img { display: block; width: 100%; height: auto; border-radius: 11px; }
+.dataset-figure figcaption { padding: 10px 4px 1px; color: var(--muted-ink); font-size: 10px; line-height: 1.55; }
+@media (max-width: 760px) {
+  .dataset-card { grid-template-columns: 1fr; }
+  .dataset-figure { max-width: 560px; margin-inline: auto; }
+}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brandline">
+      <span class="eyebrow"><span class="brand-mark">G/</span>Generative models · interactive notebook</span>
+      <a class="report-link" href="evaluation/index.html">Read the model evaluation <span aria-hidden="true">↗</span></a>
+    </div>
+    <div class="heading-row">
+      <div>
+        <h1>GAN <em>Pixel Lab</em></h1>
+        <p class="intro">This lab implements the GAN approach introduced in Goodfellow et al.'s 2014 paper “Generative Adversarial Nets.” Both networks are written from scratch in NumPy—with no deep-learning framework—and were trained on Fashion-MNIST on my laptop. Change the latent signal to explore the generated images.</p>
+      </div>
+      <div class="paper-tag">Reading alongside<strong>Goodfellow et al. · 2014</strong></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="stage" aria-label="Generated 28 by 28 image">
+      <div class="stage-head">
+        <span class="stage-kicker">Generator output</span>
+        <strong>28 × 28 <span aria-hidden="true">/</span> grayscale</strong>
+      </div>
+      <div class="frame" id="frame">
+        <canvas id="grid" aria-label="Generated 28 by 28 grayscale image"></canvas>
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+        <span class="coord a">0,0</span><span class="coord b">27,27</span>
+      </div>
+      <div class="stage-status" id="status" role="status" aria-live="polite">Ready</div>
+    </section>
+
+    <aside>
+      <div class="block">
+        <h2>01 / Experiment controls</h2>
+        <div class="btns">
+          <button class="primary" id="gen" type="button">Generate a sample <span aria-hidden="true">↗</span></button>
+        </div>
+        <p class="note small">Draw a new latent vector through the local FastAPI generator. Press <kbd>G</kbd> as a shortcut.</p>
+
+        <div class="field">
+          <label class="field-label" id="seed-label" for="seed-box">Latent seed</label>
+          <div class="field-row">
+            <input class="seedbox" id="seed-box" type="text" placeholder="0–4,294,967,295" inputmode="numeric" autocomplete="off">
+            <button id="seed-apply" type="button">Apply</button>
+          </div>
+          <details class="field-note"><summary>Why use a seed?</summary><p class="note small">The same seed and settings reproduce the same latent vector, making side-by-side comparisons repeatable. Leave it blank to choose a random seed.</p></details>
+        </div>
+
+        <div class="field">
+          <label class="field-label" id="act-label" for="act-select">Output activation</label>
+          <select class="sel" id="act-select" aria-labelledby="act-label">
+            <option value="tanh" selected>tanh</option>
+            <option value="sigmoid">sigmoid</option>
+          </select>
+          <details class="field-note"><summary>What changes?</summary><p class="note small">This maps the final network values to brightness. The generator was trained with tanh; sigmoid is included as a comparison and changes pixel intensity, not the latent sample.</p></details>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="scale-range">Latent scale <span class="field-val" id="scale-val">1.00×</span></label>
+          <input type="range" id="scale-range" min="0.1" max="2.5" step="0.05" value="1" aria-label="Latent noise scale">
+          <details class="field-note"><summary>What changes?</summary><p class="note small">Scales z before the forward pass. At 1× the sample uses the unscaled latent vector; larger or smaller values move it away from the training-time scale and can alter the output substantially.</p></details>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="gamma-range">Display gamma <span class="field-val" id="gamma-val">1.00</span></label>
+          <input type="range" id="gamma-range" min="0.4" max="2.5" step="0.05" value="1" aria-label="Display gamma">
+          <details class="field-note"><summary>What changes?</summary><p class="note small">A display-only power curve applied after the network. Gamma does not update model weights or change the latent vector.</p></details>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="speed-range">Reveal speed <span class="field-val" id="speed-val">1.00×</span></label>
+          <input type="range" id="speed-range" min="0.3" max="3" step="0.1" value="1" aria-label="Reveal animation speed">
+          <details class="field-note"><summary>What changes?</summary><p class="note small">Only the pixel-by-pixel reveal animation. The settled output is unchanged.</p></details>
+        </div>
+
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="block">
+        <h2>02 / Sample readout</h2>
+        <dl>
+          <dt>Weights</dt><dd>gan_weights_99.npz · API</dd>
+          <dt>Seed</dt><dd id="r-seed">—</dd>
+          <dt>Settled</dt><dd id="r-settled">784 / 784</dd>
+          <dt>Min / Max</dt><dd id="r-range">—</dd>
+          <dt>Mean</dt><dd id="r-mean">—</dd>
+        </dl>
+      </div>
+
+      <div class="block">
+        <h2>03 / Model path</h2>
+        <p class="note">Noise <span class="pipeline"><span>z · 100</span><span>256</span><span>1024</span><span>512</span><span>784</span></span> is sent to the local FastAPI generator, which returns a 28 × 28 sample.</p>
+      </div>
+    </aside>
+  </div>
+
+  <section class="research" aria-labelledby="research-title">
+    <div class="research-head">
+      <div>
+        <span class="research-kicker">04 / Notes from the paper</span>
+        <h2 class="research-title" id="research-title">The idea behind the pixels</h2>
+      </div>
+      <p class="research-lede">This experiment is a small, hands-on companion to the original adversarial-net framework—not a reproduction of the paper’s reported experiments.</p>
+    </div>
+    <section class="dataset-card" aria-labelledby="dataset-title">
+      <div class="dataset-copy">
+        <span class="research-kicker">Dataset / what the generator learned from</span>
+        <h3 id="dataset-title">Fashion-MNIST</h3>
+        <p>Fashion-MNIST is a collection of small grayscale clothing images released by Zalando Research. The training code reads the training-image file, reshapes each example to 28 × 28 pixels, and scales its pixel values to [-1, 1] for the generator. The GAN learns from the images themselves; it does not use the clothing labels to generate a class on request.</p>
+        <div class="dataset-facts" aria-label="Fashion-MNIST dataset facts">
+          <div class="dataset-fact"><strong>60,000</strong><span>training images used</span></div>
+          <div class="dataset-fact"><strong>10,000</strong><span>separate test images</span></div>
+          <div class="dataset-fact"><strong>28 × 28</strong><span>grayscale pixels per image</span></div>
+          <div class="dataset-fact"><strong>10</strong><span>clothing categories</span></div>
+        </div>
+        <p>Training input: <code>train-images-idx3-ubyte</code>. The supplied sample grid shows examples of the kind of images in the dataset; each image is a low-resolution grayscale thumbnail.</p>
+        <a class="dataset-source" href="https://github.com/zalandoresearch/fashion-mnist" target="_blank" rel="noreferrer">Dataset details · Zalando Research ↗</a>
+      </div>
+      <figure class="dataset-figure">
+        <img src="fashion-mnist-samples.png" alt="A 3 by 3 grid of Fashion-MNIST grayscale clothing images, including shoes, boots, shirts, trousers, and a bag." loading="lazy">
+        <figcaption>Example Fashion-MNIST images supplied for this lab. Each sample is 28 × 28 pixels; the visible axes in this montage are for illustration.</figcaption>
+      </figure>
+    </section>
+    <section class="architecture" aria-labelledby="architecture-title">
+      <div class="architecture-head">
+        <div>
+          <span class="research-kicker">Architecture / training flow</span>
+          <h3 id="architecture-title">From random noise to a learned sample</h3>
+        </div>
+        <p>Both networks learn together during training. This page runs only the fixed generator to make new samples.</p>
+      </div>
+      <div class="arch-legend" aria-label="Diagram legend">
+        <span><i class="legend-dot"></i>Generated path</span>
+        <span><i class="legend-dot data"></i>Training examples</span>
+        <span><i class="legend-dot feedback"></i>Learning feedback</span>
+      </div>
+      <div class="diagram-scroll" role="region" aria-label="Scrollable GAN architecture diagram" tabindex="0">
+        <svg class="arch-diagram" viewBox="0 0 1080 330" role="img" aria-labelledby="arch-svg-title arch-svg-desc">
+          <title id="arch-svg-title">GAN training architecture</title>
+          <desc id="arch-svg-desc">Random noise enters the generator to create a fake image. Real MNIST images and generated images are both judged by the discriminator. The discriminator's real-or-fake predictions create losses that update the discriminator and send gradients back to the generator.</desc>
+          <defs>
+            <marker id="arrow-flow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#8b8b80"/></marker>
+            <marker id="arrow-data" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#7799b7"/></marker>
+            <marker id="arrow-feedback" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#b34f31"/></marker>
+          </defs>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M145 145 H195"/>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M425 145 H490 V82 H530"/>
+          <path class="data-flow" marker-end="url(#arrow-data)" d="M145 272 H490 V238 H530"/>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M670 82 H720 V145 H750"/>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M670 238 H720 V175 H750"/>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M930 160 H970"/>
+          <path class="flow" marker-end="url(#arrow-flow)" d="M1015 205 V258"/>
+          <path class="feedback" marker-end="url(#arrow-feedback)" d="M875 276 H735 V254"/>
+          <path class="feedback" marker-end="url(#arrow-feedback)" d="M875 276 H945 V28 H310 V80"/>
+
+          <rect class="noise-node" x="25" y="115" width="120" height="90" rx="8"/>
+          <text class="small mono" x="85" y="142" text-anchor="middle">LATENT INPUT</text>
+          <text class="label mono" x="85" y="169" text-anchor="middle">z ~ N(0, I)</text>
+          <text class="sub" x="85" y="190" text-anchor="middle">100 values</text>
+
+          <rect class="net-node" x="195" y="80" width="230" height="150" rx="8"/>
+          <text class="small mono" x="215" y="105">GENERATOR · G</text>
+          <text class="label" x="215" y="132">Builds an image from noise</text>
+          <text class="sub mono" x="215" y="160">100 → 256 → 1024</text>
+          <text class="sub mono" x="215" y="180">→ 512 → 784 → tanh</text>
+          <text class="sub" x="215" y="205">LeakyReLU · LayerNorm at 1024</text>
+
+          <rect class="sample-node" x="530" y="45" width="140" height="74" rx="8"/>
+          <text class="small mono" x="600" y="70" text-anchor="middle">FAKE</text>
+          <text class="label" x="600" y="94" text-anchor="middle">Generated image</text>
+
+          <rect class="sample-node" x="530" y="201" width="140" height="74" rx="8"/>
+          <text class="small mono" x="600" y="226" text-anchor="middle">REAL</text>
+          <text class="label" x="600" y="250" text-anchor="middle">MNIST image</text>
+
+          <rect class="sample-node" x="25" y="235" width="120" height="74" rx="8"/>
+          <text class="small mono" x="85" y="261" text-anchor="middle">DATASET</text>
+          <text class="label" x="85" y="286" text-anchor="middle">Real images</text>
+
+          <rect class="output-node" x="750" y="95" width="180" height="130" rx="8"/>
+          <text class="small mono" x="770" y="120">DISCRIMINATOR · D</text>
+          <text class="label" x="770" y="149">Judge real or fake</text>
+          <text class="sub mono" x="840" y="176" text-anchor="middle">784 → 1024 → 512</text>
+          <text class="sub mono" x="840" y="194" text-anchor="middle">→ 256 → 128 → 1 → sigmoid</text>
+          <text class="sub" x="840" y="212" text-anchor="middle">LayerNorm in hidden layers</text>
+
+          <rect class="output-node" x="970" y="115" width="95" height="90" rx="8"/>
+          <text class="small mono" x="1017" y="141" text-anchor="middle">SCORE</text>
+          <text class="label" x="1017" y="164" text-anchor="middle">Real?</text>
+          <text class="sub" x="1017" y="185" text-anchor="middle">0 to 1</text>
+
+          <rect class="loss-node" x="875" y="258" width="190" height="48" rx="7"/>
+          <text class="small mono" x="970" y="287" text-anchor="middle">DISCRIMINATOR LOSS</text>
+          <text class="small" x="815" y="269" text-anchor="end">update D</text>
+          <text class="small" x="555" y="25">generator learns from D’s feedback</text>
+        </svg>
+      </div>
+      <p class="diagram-caption">The reference diagram’s training loop, adapted to this project’s fully connected MNIST networks. Arrows show data during a training step; dashed lines show how errors teach the networks.</p>
+    </section>
+    <section class="training-summary" aria-labelledby="training-title">
+      <div>
+        <span class="research-kicker">In plain language</span>
+        <h3 id="training-title">Make. Judge. Improve.</h3>
+        <p>Think of a student artist and a careful reviewer working in rounds.</p>
+      </div>
+      <div class="training-steps">
+        <article class="training-step"><b>01 · Make</b><p>The generator starts with random numbers and turns them into a handwritten-looking image.</p></article>
+        <article class="training-step"><b>02 · Judge</b><p>The discriminator sees a real training image and a generated one, then tries to tell which is which.</p></article>
+        <article class="training-step"><b>03 · Improve</b><p>The judge learns from its mistakes; feedback also nudges the generator to make more convincing images. Repeat the rounds. After training, the generator can draw on its own.</p></article>
+      </div>
+    </section>
+    <div class="research-grid">
+      <article class="research-card">
+        <span class="card-kicker">01 — The game</span>
+        <h3>Two networks, opposing goals</h3>
+        <p>The generator maps random noise <i>z</i> into a sample. The discriminator estimates whether an example came from the data or the generator. Training makes each model respond to the other.</p>
+        <div class="equation" aria-label="The minimax objective">min<sub>G</sub> max<sub>D</sub> &nbsp; E<sub>x∼p<sub>data</sub></sub>[log D(x)] + E<sub>z∼p<sub>z</sub></sub>[log(1 − D(G(z)))]</div>
+        <p>In the paper’s idealized setting, with enough model capacity and optimization, the target is p<sub>g</sub> = p<sub>data</sub>; the discriminator then cannot distinguish them and outputs 1/2.</p>
+      </article>
+      <article class="research-card">
+        <span class="card-kicker">02 — The training loop</span>
+        <h3>Alternate, then sample</h3>
+        <p>Goodfellow et al. describe alternating discriminator updates with a generator update. The paper’s experiments use one discriminator step per generator step. Once trained, drawing a sample only needs a forward pass—no Markov chain.</p>
+        <div class="pipeline" aria-label="GAN training cycle"><span>noise z</span><span>→</span><span>generator G</span><span>→</span><span>sample</span><span>↔</span><span>discriminator D</span></div>
+        <p>This page focuses on that final sampling step: change z, keep the weights fixed, and inspect the resulting pixels.</p>
+      </article>
+      <article class="research-card">
+        <span class="card-kicker">03 — This implementation</span>
+        <h3>A compact MNIST generator</h3>
+        <p>The local project trains a NumPy multilayer perceptron on 28 × 28 MNIST images. This page requests samples from the local FastAPI backend; it is separate from the paper’s original experiments.</p>
+        <div class="pipeline" aria-label="Generator layer sizes"><span>100</span><span>→</span><span>256</span><span>→</span><span>1024</span><span>→</span><span>512</span><span>→</span><span>784</span></div>
+        <p>The generator uses LeakyReLU in its hidden layers, layer normalization in the 256 → 1024 block, and tanh at the output. The backend loads the generator weights from <code>gan_weights_99.npz</code>.</p>
+      </article>
+    </div>
+    <div class="research-foot">
+      <span>Ian J. Goodfellow et al. · “Generative Adversarial Nets” · 10 June 2014</span>
+      <a href="https://arxiv.org/abs/1406.2661" target="_blank" rel="noreferrer">Read the paper · arXiv:1406.2661</a>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var N = 28, COUNT = N * N, KD = 0.07;
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var TS = reduce ? 0.2 : 1; // time scale for the decode animation
+
+  var $ = function (id) { return document.getElementById(id); };
+  var frame = $('frame'), canvas = $('grid'), ctx = canvas.getContext('2d');
+  var statusEl = $('status'), msgEl = $('msg');
+
+  function clamp(v, a, b) { a = a === undefined ? 0 : a; b = b === undefined ? 1 : b; return v < a ? a : v > b ? b : v; }
+  function smooth(a, b, x) { var t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); }
+  function smoother(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  /* ---------- generator ---------- */
+  var act = 'tanh', seedVal = 0;
+  var latentScale = 1, gamma = 1, speedMult = 1;
+  var requestNumber = 0, hasSample = false;
+  var API_URL = 'http://127.0.0.1:8000/generate';
+  function seedLabel() { return String(seedVal >>> 0); }
+  async function requestSample(seed) {
+    seedVal = seed >>> 0;
+    var requestedSeed = seedVal;
+    var currentRequest = ++requestNumber;
+    animating = false;
+    msgEl.textContent = '';
+    statusEl.textContent = 'Requesting sample from local API…';
+    try {
+      var response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seed: requestedSeed,
+          latent_scale: latentScale,
+          gamma: gamma,
+          activation: act
+        })
+      });
+      var result = await response.json();
+      if (!response.ok) {
+        var detail = typeof result.detail === 'string' ? result.detail : 'Request failed.';
+        throw new Error(detail);
+      }
+      if (currentRequest !== requestNumber) return;
+      if (result.seed !== requestedSeed || !Array.isArray(result.pixels) ||
+          result.pixels.length !== COUNT ||
+          !result.pixels.every(function (pixel) { return Number.isFinite(pixel) && pixel >= 0 && pixel <= 1; })) {
+        throw new Error('The API returned an invalid image. Check the backend response.');
+      }
+      hasSample = true;
+      beginTransition(Float32Array.from(result.pixels));
+    } catch (error) {
+      if (currentRequest !== requestNumber) return;
+      statusEl.textContent = 'Generation failed';
+      msgEl.textContent = 'Generation failed: ' + error.message + ' Start the backend with: python -m uvicorn app:app --reload';
+      console.error('GAN sample request failed:', error);
+    }
+  }
+
+  /* ---------- state ---------- */
+  var cur = new Float32Array(COUNT), start = new Float32Array(COUNT), target = new Float32Array(COUNT);
+  var delay = new Float32Array(COUNT), dur = new Float32Array(COUNT);
+  // smooth per-pixel noise: two slow sines with their own speeds and phases
+  var nA = new Float32Array(COUNT), nP = new Float32Array(COUNT), nB = new Float32Array(COUNT), nQ = new Float32Array(COUNT);
+  for (var k0 = 0; k0 < COUNT; k0++) {
+    nA[k0] = 1.6 + Math.random() * 2.4; nP[k0] = Math.random() * 6.283;
+    nB[k0] = 3.2 + Math.random() * 4.5; nQ[k0] = Math.random() * 6.283;
+  }
+  var animating = false, t0 = 0, dirty = true, curEffTS = TS;
+
+  function setText(id, t) { $(id).textContent = t; }
+  function updateStats() {
+    var mn = 1, mx = 0, sum = 0;
+    for (var i = 0; i < COUNT; i++) { var v = target[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; }
+    setText('r-range', mn.toFixed(2) + ' / ' + mx.toFixed(2));
+    setText('r-mean', (sum / COUNT).toFixed(3));
+    setText('r-seed', seedLabel());
+  }
+
+  /* ---------- drawing ---------- */
+  function resize() {
+    var w = frame.clientWidth;
+    if (!w) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(w * dpr);
+    dirty = true;
+  }
+  function draw() {
+    var s = canvas.width, cell = s / N, gap = Math.max(1, cell * 0.045);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, s, s);
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var v = Math.round(clamp(cur[r * N + c]) * 255);
+      ctx.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')';
+      ctx.fillRect(c * cell + gap / 2, r * cell + gap / 2, cell - gap, cell - gap);
+    }
+  }
+
+  /* ---------- transitions ---------- */
+  function beginTransition(next) {
+    start.set(cur); target.set(next);
+    var ox = (Math.random() - 0.5) * 8, oz = (Math.random() - 0.5) * 8;
+    curEffTS = TS / speedMult;
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var i = r * N + c, d = Math.hypot(c - 13.5 - ox, r - 13.5 - oz);
+      delay[i] = (0.9 + d * KD + Math.random() * 0.5) * curEffTS;   // image dissolves to noise first, then resolves outward
+      dur[i] = (1.5 + Math.random() * 1.0) * curEffTS;
+    }
+    t0 = performance.now() / 1000;
+    animating = true;
+    statusEl.textContent = 'Denoising…';
+    updateStats();
+  }
+
+  function generate() {
+    msgEl.textContent = '';
+    requestSample((Math.random() * 4294967296) >>> 0);
+  }
+
+  function stepAnim(now) {
+    var tau = now - t0, settled = 0, i, noise, pre, e, p;
+    var q = smooth(0, 0.8 * curEffTS, tau); // old image melts into noise
+    for (i = 0; i < COUNT; i++) {
+      noise = 0.5 + 0.5 * (0.6 * Math.sin(now * nA[i] + nP[i]) + 0.4 * Math.sin(now * nB[i] + nQ[i]));
+      pre = start[i] * (1 - q) + noise * 0.92 * q;
+      p = clamp((tau - delay[i]) / dur[i]);
+      if (p >= 1) settled++;
+      e = smoother(p);
+      cur[i] = pre * (1 - e) + target[i] * e;
+    }
+    setText('r-settled', settled + ' / ' + COUNT);
+    dirty = true;
+    if (settled === COUNT) {
+      animating = false; cur.set(target);
+      setText('r-settled', COUNT + ' / ' + COUNT);
+      statusEl.textContent = 'Generated · seed ' + seedLabel();
+    }
+  }
+
+  function loop() {
+    if (animating) stepAnim(performance.now() / 1000);
+    if (dirty) { draw(); dirty = false; }
+    requestAnimationFrame(loop);
+  }
+
+  /* ---------- UI wiring ---------- */
+  $('gen').addEventListener('click', generate);
+  document.addEventListener('keydown', function (e) {
+    var tag = document.activeElement && document.activeElement.tagName;
+    if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag || '')) generate();
+  });
+  $('act-select').addEventListener('change', function (e) {
+    act = e.target.value;
+    if (hasSample) requestSample(seedVal);
+  });
+  $('scale-range').addEventListener('input', function (e) {
+    latentScale = parseFloat(e.target.value);
+    setText('scale-val', latentScale.toFixed(2) + '×');
+    if (hasSample) requestSample(seedVal);
+  });
+  $('gamma-range').addEventListener('input', function (e) {
+    gamma = parseFloat(e.target.value);
+    setText('gamma-val', gamma.toFixed(2));
+    if (hasSample) requestSample(seedVal);
+  });
+  $('speed-range').addEventListener('input', function (e) {
+    speedMult = parseFloat(e.target.value);
+    setText('speed-val', speedMult.toFixed(2) + '×');
+  });
+  $('seed-apply').addEventListener('click', function () {
+    var raw = $('seed-box').value.trim();
+    var seed;
+    if (raw === '') {
+      seed = (Math.random() * 4294967296) >>> 0;
+    } else {
+      if (!/^\d+$/.test(raw) || Number(raw) > 4294967295) {
+        msgEl.textContent = 'Enter a whole number from 0 to 4,294,967,295, or leave blank for a random seed.';
+        return;
+      }
+      seed = Number(raw);
+    }
+    msgEl.textContent = '';
+    $('seed-box').value = '';
+    requestSample(seed);
+  });
+  $('seed-box').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') $('seed-apply').click();
+  });
+
+  /* ---------- boot: request the initial sample from the local API ---------- */
+  statusEl.textContent = 'Connecting to the local GAN API…';
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(frame); else window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(loop);
+  requestSample(0x5EED2026);
+})();
+</script>
+
+</body></html>
