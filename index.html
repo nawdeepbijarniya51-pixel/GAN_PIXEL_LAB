@@ -956,7 +956,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   var act = 'tanh', seedVal = 0;
   var latentScale = 1, gamma = 1, speedMult = 1;
   var requestNumber = 0, hasSample = false;
-  var API_URL = 'http://127.0.0.1:8000/generate';
+  var API_URL = 'https://gan-pixel-lab.onrender.com/generate';
   function seedLabel() { return String(seedVal >>> 0); }
   async function requestSample(seed) {
     seedVal = seed >>> 0;
