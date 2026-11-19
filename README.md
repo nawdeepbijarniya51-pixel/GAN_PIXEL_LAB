@@ -5,6 +5,11 @@ A **Generative Adversarial Network built from scratch in pure NumPy** (no PyTorc
 ![Generated samples](evaluation/generated_images.png)
 
 <sub>64 samples drawn from the trained generator (see [Results](#results)).</sub>
+
+
+---
+
+
 <hr>
 **[Open the GAN Lab](https://nawdeepbijarniya51-pixel.github.io/GAN_PIXEL_LAB/)**
 
@@ -14,9 +19,6 @@ A **Generative Adversarial Network built from scratch in pure NumPy** (no PyTorc
 
 <sub>64 samples drawn from the trained generator (see [Results](#results)).</sub>
 <hr>
-
----
-
 ## Table of Contents
 
 - [Highlights](#highlights)
