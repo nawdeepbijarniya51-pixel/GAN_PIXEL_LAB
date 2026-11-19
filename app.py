@@ -55,10 +55,10 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="MNIST GAN Pixel Lab API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["null"],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
