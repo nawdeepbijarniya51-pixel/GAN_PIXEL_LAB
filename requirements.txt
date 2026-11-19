@@ -1,0 +1,12 @@
+# Core GAN implementation and training
+numpy
+matplotlib
+tqdm
+
+# FastAPI backend for the interactive frontend
+fastapi
+uvicorn[standard]
+
+# Post-training evaluation
+pandas
+scipy
