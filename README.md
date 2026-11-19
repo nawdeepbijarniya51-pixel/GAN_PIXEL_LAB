@@ -5,6 +5,15 @@ A **Generative Adversarial Network built from scratch in pure NumPy** (no PyTorc
 ![Generated samples](evaluation/generated_images.png)
 
 <sub>64 samples drawn from the trained generator (see [Results](#results)).</sub>
+<hr>
+**[Open the GAN Lab](https://nawdeepbijarniya51-pixel.github.io/GAN_PIXEL_LAB/)**
+
+A **Generative Adversarial Network built from scratch in pure NumPy** (no PyTorch, no TensorFlow) and trained on **Fashion-MNIST**. The repo covers the whole pipeline: hand-written forward and backpropagation, alternating D/G updates, a trained checkpoint, an interactive frontend, and an evaluation suite.
+
+![Generated samples](evaluation/generated_images.png)
+
+<sub>64 samples drawn from the trained generator (see [Results](#results)).</sub>
+<hr>
 
 ---
 
