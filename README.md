@@ -1,5 +1,6 @@
 # GAN Pixel Lab
 **[Open the GAN Lab](https://nawdeepbijarniya51-pixel.github.io/GAN_PIXEL_LAB/)**
+<br>
 A **Generative Adversarial Network built from scratch in pure NumPy** (no PyTorch, no TensorFlow) and trained on **Fashion-MNIST**. The repo covers the whole pipeline: hand-written forward and backward passes, an Adam optimizer, the adversarial training loop, a post-training evaluation suite, a FastAPI inference backend, and an interactive web frontend for exploring the trained generator.
 
 ![Generated samples](evaluation/generated_images.png)
